@@ -19,3 +19,5 @@ jobs:
     steps:
       - name: Lint PR title
         uses: p6m7g8-actions/p6-gh-pr-title-linter@main
+        with:
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
