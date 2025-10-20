@@ -9,4 +9,3 @@
       - name: Label Stale PRs
         uses: p6m7g8-actions/p6-gh-pr-stale@main
 ```
-
