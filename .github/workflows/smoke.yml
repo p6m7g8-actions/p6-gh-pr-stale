@@ -10,4 +10,3 @@ jobs:
       - name: Smoke
         shell: bash
         run: echo "smoke ok"
-
