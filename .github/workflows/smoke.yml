@@ -1,6 +1,8 @@
 name: Smoke
+
 on:
   workflow_dispatch: {}
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -10,4 +12,3 @@ jobs:
       - name: Smoke
         shell: bash
         run: echo "smoke ok"
-
