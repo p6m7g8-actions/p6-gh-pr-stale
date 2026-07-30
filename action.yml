@@ -1,22 +1,113 @@
 name: "P6 GHA: Stale"
-description: "P6 GHA: Stale"
+description: "P6 GHA: Stale. Marks and closes inactive pull requests."
 author: "Philip M. Gollucci"
+
+inputs:
+  days_before_pr_stale:
+    description: "Days of pull request inactivity before it is marked stale. -1 disables the pull request sweep."
+    required: false
+    default: "14"
+  days_before_pr_close:
+    description: "Days after a pull request is marked stale before it is closed. -1 never closes."
+    required: false
+    default: "2"
+  include_issues:
+    description: "Sweep issues as well as pull requests (true/false). Off by default; this action is scoped to pull requests."
+    required: false
+    default: "false"
+  days_before_issue_stale:
+    description: "Days of issue inactivity before it is marked stale. Ignored unless include_issues is true."
+    required: false
+    default: "60"
+  days_before_issue_close:
+    description: "Days after an issue is marked stale before it is closed. Ignored unless include_issues is true."
+    required: false
+    default: "7"
 
 runs:
   using: "composite"
   steps:
+    # This action is named, described and documented as a pull request sweep,
+    # yet it also marked issues stale at 60 days and closed them at 67, and it
+    # exposed no inputs, so a consuming repository had no way to opt out of a
+    # sweep it never asked for. Issues are now opt-in and every day count is
+    # tunable, with the previous values kept as the defaults.
+    - name: Resolve sweep settings
+      id: issues
+      shell: bash
+      env:
+        INCLUDE_ISSUES: ${{ inputs.include_issues }}
+        DAYS_BEFORE_PR_STALE: ${{ inputs.days_before_pr_stale }}
+        DAYS_BEFORE_PR_CLOSE: ${{ inputs.days_before_pr_close }}
+        DAYS_BEFORE_ISSUE_STALE: ${{ inputs.days_before_issue_stale }}
+        DAYS_BEFORE_ISSUE_CLOSE: ${{ inputs.days_before_issue_close }}
+      run: |
+        set -euo pipefail
+
+        # A composite default only applies when an input is absent, never when
+        # it is present and empty. A caller wiring include_issues through an
+        # unset variable therefore passes "", which is unambiguous for a boolean
+        # and takes the documented default rather than failing. A genuine typo
+        # like "yes" or "1" still fails loudly, because a boolean typo that
+        # silently disables a sweep is the same class of bug as a sweep nobody
+        # could disable.
+        case "${INCLUDE_ISSUES,,}" in
+          true) include_issues="true" ;;
+          "" | false) include_issues="false" ;;
+          *)
+            printf 'include_issues must be true or false, got: %s\n' "${INCLUDE_ISSUES}" >&2
+            exit 1
+            ;;
+        esac
+
+        # The day counts get the same strictness. actions/stale reads them with
+        # parseFloat, so a non-numeric value becomes NaN and falls back to the
+        # generic days-before-stale / days-before-close pair below, both -1.
+        # A typo would therefore turn the whole sweep off with no log line,
+        # which is the failure this action is being fixed to stop having. The
+        # issue counts are only checked when they will actually be read.
+        checks=(
+          "days_before_pr_stale=${DAYS_BEFORE_PR_STALE}"
+          "days_before_pr_close=${DAYS_BEFORE_PR_CLOSE}"
+        )
+        if [[ "${include_issues}" == "true" ]]; then
+          checks+=("days_before_issue_stale=${DAYS_BEFORE_ISSUE_STALE}")
+          checks+=("days_before_issue_close=${DAYS_BEFORE_ISSUE_CLOSE}")
+        fi
+        for pair in "${checks[@]}"; do
+          if [[ ! "${pair#*=}" =~ ^-?[0-9]+$ ]]; then
+            printf '%s must be an integer, got: %s\n' "${pair%%=*}" "${pair#*=}" >&2
+            exit 1
+          fi
+        done
+
+        # -1 is actions/stale's "never" sentinel, the same value already used
+        # for the generic days-before-stale and days-before-close pair below.
+        if [[ "${include_issues}" == "true" ]]; then
+          stale="${DAYS_BEFORE_ISSUE_STALE}"
+          close="${DAYS_BEFORE_ISSUE_CLOSE}"
+        else
+          stale="-1"
+          close="-1"
+        fi
+
+        printf 'days_before_issue_stale=%s\n' "${stale}" >>"${GITHUB_OUTPUT}"
+        printf 'days_before_issue_close=%s\n' "${close}" >>"${GITHUB_OUTPUT}"
+        printf 'pull requests: stale=%s close=%s\n' "${DAYS_BEFORE_PR_STALE}" "${DAYS_BEFORE_PR_CLOSE}"
+        printf 'issues: include=%s stale=%s close=%s\n' "${include_issues}" "${stale}" "${close}"
+
     - uses: actions/stale@v10.2.0
       with:
         days-before-stale: -1
         days-before-close: -1
-        days-before-pr-stale: 14
-        days-before-pr-close: 2
-        stale-pr-message: This pull request is now marked as stale because it hasn't seen activity for a while. Add a comment or it will be closed soon. If you wish to exclude this issue from being marked as stale, add the "backlog" label.
-        close-pr-message: Closing this pull request as it hasn't seen activity for a while. Please add a comment @mentioning a maintainer to reopen. If you wish to exclude this issue from being marked as stale, add the "backlog" label.
+        days-before-pr-stale: ${{ inputs.days_before_pr_stale }}
+        days-before-pr-close: ${{ inputs.days_before_pr_close }}
+        stale-pr-message: This pull request is now marked as stale because it hasn't seen activity for a while. Add a comment or it will be closed soon. If you wish to exclude this pull request from being marked as stale, add the "backlog" label.
+        close-pr-message: Closing this pull request as it hasn't seen activity for a while. Please add a comment @mentioning a maintainer to reopen. If you wish to exclude this pull request from being marked as stale, add the "backlog" label.
         stale-pr-label: stale
         exempt-pr-labels: backlog
-        days-before-issue-stale: 60
-        days-before-issue-close: 7
+        days-before-issue-stale: ${{ steps.issues.outputs.days_before_issue_stale }}
+        days-before-issue-close: ${{ steps.issues.outputs.days_before_issue_close }}
         stale-issue-message: This issue is now marked as stale because it hasn't seen activity for a while. Add a comment or it will be closed soon. If you wish to exclude this issue from being marked as stale, add the "backlog" label.
         close-issue-message: Closing this issue as it hasn't seen activity for a while. Please add a comment @mentioning a maintainer to reopen. If you wish to exclude this issue from being marked as stale, add the "backlog" label.
         stale-issue-label: stale
