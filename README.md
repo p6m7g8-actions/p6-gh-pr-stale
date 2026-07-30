@@ -43,4 +43,11 @@ passes nothing never has its issues touched:
 ```
 
 `include_issues` must be spelled `true` or `false`. Any other value fails the
-step rather than being read as `false`.
+step rather than being read as `false`. An empty value is the one exception: a
+composite default only applies when an input is absent, so a caller wiring this
+through an unset variable passes `""`, which takes the documented default.
+
+Day counts must be integers. `actions/stale` parses them with `parseFloat`, so a
+non-numeric value would otherwise become `NaN`, fall back to the generic
+`days-before-*` pair, and silently switch the whole sweep off. They are
+validated up front instead.

@@ -32,39 +32,69 @@ runs:
     # exposed no inputs, so a consuming repository had no way to opt out of a
     # sweep it never asked for. Issues are now opt-in and every day count is
     # tunable, with the previous values kept as the defaults.
-    - name: Resolve issue sweep
+    - name: Resolve sweep settings
       id: issues
       shell: bash
       env:
         INCLUDE_ISSUES: ${{ inputs.include_issues }}
+        DAYS_BEFORE_PR_STALE: ${{ inputs.days_before_pr_stale }}
+        DAYS_BEFORE_PR_CLOSE: ${{ inputs.days_before_pr_close }}
         DAYS_BEFORE_ISSUE_STALE: ${{ inputs.days_before_issue_stale }}
         DAYS_BEFORE_ISSUE_CLOSE: ${{ inputs.days_before_issue_close }}
       run: |
         set -euo pipefail
 
-        # -1 is actions/stale's "never" sentinel, the same value already used
-        # for the generic days-before-stale and days-before-close pair below.
+        # A composite default only applies when an input is absent, never when
+        # it is present and empty. A caller wiring include_issues through an
+        # unset variable therefore passes "", which is unambiguous for a boolean
+        # and takes the documented default rather than failing. A genuine typo
+        # like "yes" or "1" still fails loudly, because a boolean typo that
+        # silently disables a sweep is the same class of bug as a sweep nobody
+        # could disable.
         case "${INCLUDE_ISSUES,,}" in
-          true)
-            stale="${DAYS_BEFORE_ISSUE_STALE}"
-            close="${DAYS_BEFORE_ISSUE_CLOSE}"
-            ;;
-          false)
-            stale="-1"
-            close="-1"
-            ;;
+          true) include_issues="true" ;;
+          "" | false) include_issues="false" ;;
           *)
-            # Fail loudly instead of quietly reading "yes" or "1" as false. A
-            # boolean typo that silently disables a sweep is the same class of
-            # bug as a sweep nobody could disable.
             printf 'include_issues must be true or false, got: %s\n' "${INCLUDE_ISSUES}" >&2
             exit 1
             ;;
         esac
 
+        # The day counts get the same strictness. actions/stale reads them with
+        # parseFloat, so a non-numeric value becomes NaN and falls back to the
+        # generic days-before-stale / days-before-close pair below, both -1.
+        # A typo would therefore turn the whole sweep off with no log line,
+        # which is the failure this action is being fixed to stop having. The
+        # issue counts are only checked when they will actually be read.
+        checks=(
+          "days_before_pr_stale=${DAYS_BEFORE_PR_STALE}"
+          "days_before_pr_close=${DAYS_BEFORE_PR_CLOSE}"
+        )
+        if [[ "${include_issues}" == "true" ]]; then
+          checks+=("days_before_issue_stale=${DAYS_BEFORE_ISSUE_STALE}")
+          checks+=("days_before_issue_close=${DAYS_BEFORE_ISSUE_CLOSE}")
+        fi
+        for pair in "${checks[@]}"; do
+          if [[ ! "${pair#*=}" =~ ^-?[0-9]+$ ]]; then
+            printf '%s must be an integer, got: %s\n' "${pair%%=*}" "${pair#*=}" >&2
+            exit 1
+          fi
+        done
+
+        # -1 is actions/stale's "never" sentinel, the same value already used
+        # for the generic days-before-stale and days-before-close pair below.
+        if [[ "${include_issues}" == "true" ]]; then
+          stale="${DAYS_BEFORE_ISSUE_STALE}"
+          close="${DAYS_BEFORE_ISSUE_CLOSE}"
+        else
+          stale="-1"
+          close="-1"
+        fi
+
         printf 'days_before_issue_stale=%s\n' "${stale}" >>"${GITHUB_OUTPUT}"
         printf 'days_before_issue_close=%s\n' "${close}" >>"${GITHUB_OUTPUT}"
-        printf 'issues: include=%s stale=%s close=%s\n' "${INCLUDE_ISSUES}" "${stale}" "${close}"
+        printf 'pull requests: stale=%s close=%s\n' "${DAYS_BEFORE_PR_STALE}" "${DAYS_BEFORE_PR_CLOSE}"
+        printf 'issues: include=%s stale=%s close=%s\n' "${include_issues}" "${stale}" "${close}"
 
     - uses: actions/stale@v10.2.0
       with:
