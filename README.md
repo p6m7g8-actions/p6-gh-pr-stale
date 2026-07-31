@@ -9,7 +9,7 @@
 
 ```yaml
       - name: Label Stale PRs
-        uses: p6m7g8-actions/p6-gh-pr-stale@main
+        uses: p6m7g8-actions/p6-gh-pr-expire@main
 ```
 
 ## Inputs
@@ -37,7 +37,7 @@ passes nothing never has its issues touched:
 
 ```yaml
       - name: Label Stale PRs and Issues
-        uses: p6m7g8-actions/p6-gh-pr-stale@main
+        uses: p6m7g8-actions/p6-gh-pr-expire@main
         with:
           include_issues: "true"
 ```
